@@ -1,0 +1,37 @@
+[project]
+name = "multipar_bayes"
+version = "0.1.0"
+description = "Package for calculating various bounds in Bayesian multi-parameter estimation"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  {name = "Francesco Albarelli", email = "francesco.albarelli@gmail.com"},
+  {name = "Dominic Branford", email = "dominic.branford@unifi.it"},
+  {name = "Jesús Rubio", email = "j.rubiojimenez@surrey.ac.uk"},
+]
+maintainers = [
+  {name = "Dominic Branford", email = "dominic.branford@unifi.it"}
+]
+dependencies = [
+    "cvxpy>=1.6.5",
+    "numpy>=2.1.2",
+    "scipy>=1.15.3",
+]
+
+[tool.ruff]
+line-length = 99
+
+[tool.ruff.lint]
+unfixable = ["F401"]
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pdoc>=16.0.0",
+]
