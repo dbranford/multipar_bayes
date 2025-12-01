@@ -186,7 +186,7 @@ def hn_fun(
 
     References
     ----------
-    .. [1] J. Suzuki, Bayesian Nagaoka-Hayashi Bound for Multiparameter Quantum-State Estimation Problem, IEICE Trans. Fundam. Electron. Commun. Comput. Sci. E107.A, 510 (2024), arXiv:2302.14223.
+    .. [1] J. Suzuki, Bayesian Nagaoka-Hayashi Bound for Multiparameter Quantum-State Estimation Problem, [IEICE Trans. Fundam. Electron. Commun. Comput. Sci. E107.A, 510 (2024)](https://doi.org/10.1587/transfun.2023TAP0014), [arXiv:2302.14223](https://arxiv.org/abs/2302.14223).
     """
 
     if not isinstance(rho1s, list):
@@ -260,7 +260,7 @@ def nh_fun(
 
     References
     ----------
-    .. [1] J. Suzuki, Bayesian Nagaoka-Hayashi Bound for Multiparameter Quantum-State Estimation Problem, IEICE Trans. Fundam. Electron. Commun. Comput. Sci. E107.A, 510 (2024), arXiv:2302.14223.
+    .. [1] J. Suzuki, Bayesian Nagaoka-Hayashi Bound for Multiparameter Quantum-State Estimation Problem, [IEICE Trans. Fundam. Electron. Commun. Comput. Sci. E107.A, 510 (2024)](https://doi.org/10.1587/transfun.2023TAP0014), [arXiv:2302.14223](https://arxiv.org/abs/2302.14223).
     """
     dim = len(rho0)
     para_num = len(rho1s)

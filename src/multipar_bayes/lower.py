@@ -76,8 +76,8 @@ def rpm_fun(
 
     References
     ----------
-    .. [1] J. Suzuki, Bayesian Nagaoka-Hayashi Bound for Multiparameter Quantum-State Estimation Problem, [IEICE Trans. Fundam. Electron. Commun. Comput. Sci. E107.A, 510 (2024)](https://doi.org/10.1587/transfun.2023TAP0014), arXiv:2302.14223.
-    .. [2] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, arXiv:2511.XXXXX.
+    .. [1] J. Suzuki, Bayesian Nagaoka-Hayashi Bound for Multiparameter Quantum-State Estimation Problem, [IEICE Trans. Fundam. Electron. Commun. Comput. Sci. E107.A, 510 (2024)](https://doi.org/10.1587/transfun.2023TAP0014), [arXiv:2302.14223](https://arxiv.org/abs/2302.14223).
+    .. [2] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, [arXiv:2511.16645](https://arxiv.org/abs/2511.16645).
     """
     if weight_matrix is None:
         n = len(rho1s)
@@ -131,7 +131,7 @@ def sqpm_fun(
 
     References
     ----------
-    .. [1] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, arXiv:2511.XXXXX.
+    .. [1] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, [arXiv:2511.16645](https://arxiv.org/abs/2511.16645).
     """
     if weight_matrix is None:
         n = len(rho1s)
@@ -139,13 +139,13 @@ def sqpm_fun(
 
     r0_inv_sqrt = fractional_matrix_power(r0, -0.5)
 
-    # Calculate the RPM operators
+    # Calculate the SqPM operators
     sqpms = [r0_inv_sqrt @ rho1 @ r0_inv_sqrt for rho1 in rho1s]
 
     # Compute the matrix precision gain
     matrix_gain = np.array([[np.trace(r1 @ sqpm) for sqpm in sqpms] for r1 in rho1s])
 
     # Result
-    pgm_gain = np.real(np.trace(weight_matrix @ matrix_gain))
+    sqpm_gain = np.real(np.trace(weight_matrix @ matrix_gain))
 
-    return pgm_gain, matrix_gain, sqpms
+    return sqpm_gain, matrix_gain, sqpms

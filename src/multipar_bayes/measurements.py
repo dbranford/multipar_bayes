@@ -35,7 +35,7 @@ def general_measurement(
 
     References
     ----------
-    .. [1] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, arXiv:2511.XXXXX.
+    .. [1] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, [arXiv:2511.16645](https://arxiv.org/abs/2511.16645).
     """
     if weight_matrix is None:
         weight_matrix = np.eye(len(rho1s))
@@ -84,7 +84,7 @@ def finite_measurement_bayesian_update(
 
     References
     ----------
-    .. [1] J. Rubio and J. Dunningham, Bayesian multiparameter quantum metrology with limited data, Phys. Rev. A 101, 032114 (2020)
+    .. [1] J. Rubio and J. Dunningham, Bayesian multiparameter quantum metrology with limited data, [Phys. Rev. A 101, 032114 (2020)](https://doi.org/10.1103/PhysRevA.101.032114).
     """
     num_params = len(rho1s)
     if weight_matrix is None:

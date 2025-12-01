@@ -35,7 +35,7 @@ def pgm_fun(
 
     References
     ----------
-    .. [1] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, arXiv:2511.XXXXX.
+    .. [1] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, [arXiv:2511.16645](https://arxiv.org/abs/2511.16645).
     """
     if weight_matrix is None:
         weight_matrix = np.identity(len(rho1s))

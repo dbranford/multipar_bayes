@@ -1,6 +1,6 @@
 """
 Package for bounds in Bayesian quantum estimation.
-See F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, arXiv:2511.XXXXX for more details.
+See F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, [arXiv:2511.16645](https://arxiv.org/abs/2511.16645) for more details.
 """
 
 from .convex import nh_fun, hn_fun
