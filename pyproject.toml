@@ -3,6 +3,7 @@ name = "multipar_bayes"
 version = "0.1.0"
 description = "Package for calculating various bounds in Bayesian multi-parameter estimation"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
 authors = [
   {name = "Francesco Albarelli", email = "francesco.albarelli@gmail.com"},
@@ -17,6 +18,12 @@ dependencies = [
     "numpy>=2.1.2",
     "scipy>=1.15.3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/dbranford/multipar_bayes"
+Documentation = "https://dbranford.github.io/multipar_bayes"
+Repository = "https://github.com/dbranford/multipar_bayes.git"
+Issues = "https://github.com/dbranford/multipar_bayes/issues"
 
 [tool.ruff]
 line-length = 99
