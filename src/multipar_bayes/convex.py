@@ -1,9 +1,12 @@
 import cvxpy as cp
 import numpy as np
+import numpy.typing as npt
 import scipy as sp
 import itertools
 from collections.abc import Iterable
 from scipy.sparse import coo_array, dia_array, eye_array
+
+from multipar_bayes.bounds import ConvexBound, BoundMSL
 
 
 def su_n_generators(n: int) -> tuple[list[coo_array], list[coo_array], list[dia_array]]:
@@ -25,7 +28,7 @@ def su_n_generators(n: int) -> tuple[list[coo_array], list[coo_array], list[dia_
     return u, v, w
 
 
-def _uxu_sparse(c1, c2, shape) -> coo_array:
+def _uxu_sparse(c1: tuple[int, int], c2: tuple[int, int], shape: tuple[int, int]) -> coo_array:
     match (c1[0] == c2[0], c1[1] == c2[1], c1[0] == c2[1], c1[1] == c2[0]):
         case (True, True, _, _):
             return coo_array(([0.5, 0.5], (c2, c1)), shape=shape)
@@ -39,9 +42,10 @@ def _uxu_sparse(c1, c2, shape) -> coo_array:
             return coo_array(([0.5], ([c2[1]], [c1[0]])), shape=shape)
         case (False, False, False, False):
             return coo_array(shape)
+    raise ValueError("Invalid arguments to _uxu_sparse, this should be unreachable")
 
 
-def _uxv_sparse(c1, c2, shape) -> coo_array:
+def _uxv_sparse(c1: tuple[int, int], c2: tuple[int, int], shape: tuple[int, int]) -> coo_array:
     match (c1[0] == c2[0], c1[1] == c2[1], c1[0] == c2[1], c1[1] == c2[0]):
         case (True, True, _, _):
             return coo_array(([0.5j, -0.5j], (c2, c1)), shape=shape)
@@ -55,9 +59,10 @@ def _uxv_sparse(c1, c2, shape) -> coo_array:
             return coo_array(([0.5j], ([c2[1]], [c1[0]])), shape=shape)
         case (False, False, False, False):
             return coo_array(shape)
+    raise ValueError("Invalid arguments to _uxv_sparse, this should be unreachable")
 
 
-def _vxu_sparse(c1, c2, shape) -> coo_array:
+def _vxu_sparse(c1: tuple[int, int], c2: tuple[int, int], shape: tuple[int, int]) -> coo_array:
     match (c1[0] == c2[0], c1[1] == c2[1], c1[0] == c2[1], c1[1] == c2[0]):
         case (True, True, _, _):
             return coo_array(([-0.5j, 0.5j], (c2, c1)), shape=shape)
@@ -71,9 +76,10 @@ def _vxu_sparse(c1, c2, shape) -> coo_array:
             return coo_array(([0.5j], ([c2[1]], [c1[0]])), shape=shape)
         case (False, False, False, False):
             return coo_array(shape)
+    raise ValueError("Invalid arguments to _vxu_sparse, this should be unreachable")
 
 
-def _vxv_sparse(c1, c2, shape) -> coo_array:
+def _vxv_sparse(c1: tuple[int, int], c2: tuple[int, int], shape: tuple[int, int]) -> coo_array:
     match (c1[0] == c2[0], c1[1] == c2[1], c1[0] == c2[1], c1[1] == c2[0]):
         case (True, True, _, _):
             return coo_array(([0.5, 0.5], (c2, c1)), shape=shape)
@@ -87,6 +93,7 @@ def _vxv_sparse(c1, c2, shape) -> coo_array:
             return coo_array(([-0.5], ([c2[1]], [c1[0]])), shape=shape)
         case (False, False, False, False):
             return coo_array(shape)
+    raise ValueError("Invalid arguments to _vxv_sparse, this should be unreachable")
 
 
 def u_n_generators_product(n: int) -> Iterable[coo_array | dia_array]:
@@ -155,145 +162,197 @@ def u_n_generators_product(n: int) -> Iterable[coo_array | dia_array]:
     return prod_iter
 
 
-def hn_fun(
-    rho0: np.typing.ArrayLike,
-    rho1s: list[np.typing.ArrayLike],
-    weight_matrix: np.typing.ArrayLike | None = None,
-    solver: str | None = "SCS",
-) -> tuple[float, np.typing.NDArray, cp.Problem]:
-    """
-    Calculation of the Bayesian Holevo-Nagaoka bound (NHB)[1]_ via semidefinite programming.
+class HolevoNagaokaBound(ConvexBound):
+    _x_opt: npt.NDArray
+    rho0: np.typing.NDArray
+    rho1s: list[np.typing.NDArray]
+    weight_matrix: np.typing.NDArray
+    prior_second_moment: np.typing.NDArray | None
+    cvx_problem: cp.Problem
+    scalar_pseudo_gain: float
 
-    Parameters
-    ----------
-    rho0 : ndarray
-        Density matrix, average state of the ensemble.
-    rho1s : list of ndarrays
-        List of first moment operators wrt to each parameter
-    weight_matrix : ndarray, optional
-        Weight matrix (defaults to identity).
-    solver : str, optional
-        CVXPY solver to use (e.g., 'SCS', 'MOSEK').
+    def __init__(
+        self,
+        rho0: npt.ArrayLike,
+        rho1s: list[npt.ArrayLike],
+        weight_matrix: npt.ArrayLike,
+        solver: str | None = "SCS",
+        prior_second_moment: npt.ArrayLike | None = None,
+        weighted_prior_second_moment: float | None = None,
+    ):
+        r"""
+        Calculation of the Bayesian Holevo-Nagaoka bound (NHB)[1]_ via semidefinite programming.
 
-    Returns
-    -------
-    gain : float
-        The pseudo-gain of the objective (Nagaoka–Hayashi bound).
-    x_opt : ndarray
-        Matrix assembled from auxiliary variables X.
-    prob : cp.Problem
-        The CVXPY problem object (for further inspection).
+        Parameters
+        ----------
+        rho0 : ndarray
+            Density matrix, average state of the ensemble.
+        rho1s : list of ndarrays
+            List of first moment operators wrt to each parameter
+        weight_matrix : ndarray
+            Weight matrix
+        solver : str, optional
+            CVXPY solver to use (e.g., 'SCS', 'MOSEK').
+        prior_second_moment : ndarray, optional
+            Second moment of the prior (\\( \Lambda \\))
+        weighted_prior_second_moment : float, optional
+            Scalar weighted second moment of the prior (\\( \lambda \\)). This is ignored if both `weight_matrix` and `prior_second_moment` are provided
 
-    References
-    ----------
-    .. [1] J. Suzuki, Bayesian Nagaoka-Hayashi Bound for Multiparameter Quantum-State Estimation Problem, [IEICE Trans. Fundam. Electron. Commun. Comput. Sci. E107.A, 510 (2024)](https://doi.org/10.1587/transfun.2023TAP0014), [arXiv:2302.14223](https://arxiv.org/abs/2302.14223).
-    """
+        References
+        ----------
+        .. [1] J. Suzuki, Bayesian Nagaoka-Hayashi Bound for Multiparameter Quantum-State Estimation Problem, [IEICE Trans. Fundam. Electron. Commun. Comput. Sci. E107.A, 510 (2024)](https://doi.org/10.1587/transfun.2023TAP0014), [arXiv:2302.14223](https://arxiv.org/abs/2302.14223).
+        """
 
-    if not isinstance(rho1s, list):
-        raise TypeError("Please make sure rho1 is a list!")
+        rho0 = np.asarray(rho0)
+        dim = rho0.shape[0]
+        num = dim * dim
+        para_num = len(rho1s)
 
-    dim = len(rho0)
-    num = dim * dim
-    para_num = len(rho1s)
+        if weight_matrix is None:
+            raise ValueError("HolevoNagaokaBound requires a weight_matrix to be explicitly passed")
 
-    if weight_matrix is None:
-        weight_matrix = np.identity(para_num)
+        BoundMSL.__init__(
+            self,
+            rho0=rho0,
+            rho1s=rho1s,
+            weight_matrix=weight_matrix,
+            prior_second_moment=prior_second_moment,
+            weighted_prior_second_moment=weighted_prior_second_moment,
+        )
 
-    u, v, w = su_n_generators(dim)
-    lambdas = [eye_array(dim, format="dia") / np.sqrt(dim)] + u + v + w
+        u, v, w = su_n_generators(dim)
+        lambdas = [eye_array(dim, format="dia") / np.sqrt(dim)] + u + v + w
 
-    generator_products = u_n_generators_product(dim)
-    S = np.array([(rho0 @ m).trace() for m in generator_products]).reshape((num, num))
+        generator_products = u_n_generators_product(dim)
+        s = np.array([(self.rho0 @ m).trace() for m in generator_products]).reshape((num, num))
 
-    lu, d, _ = sp.linalg.ldl(S)
-    R = np.dot(lu, sp.linalg.sqrtm(d)).conj().T
+        lu, d, _ = sp.linalg.ldl(s)
+        r = np.dot(lu, sp.linalg.sqrtm(d)).conj().T
 
-    V = cp.Variable((para_num, para_num), symmetric=True)
-    X = cp.Variable((num, para_num))
+        v = cp.Variable((para_num, para_num), symmetric=True)
+        x = cp.Variable((num, para_num))
 
-    constraints = [cp.bmat([[V, X.T @ R.conj().T], [R @ X, np.identity(num)]]) >> 0]
+        constraints = [cp.bmat([[v, x.T @ r.conj().T], [r @ x, np.identity(num)]]) >> 0]
 
-    vec_rho1s = np.array([[np.real((rho1j @ λ).trace()) for λ in lambdas] for rho1j in rho1s])
+        vec_rho1s = np.array(
+            [[np.real((rho1j @ λ).trace()) for λ in lambdas] for rho1j in self.rho1s]
+        )
 
-    objective = cp.trace(weight_matrix @ V) - 2 * cp.trace(X @ weight_matrix @ vec_rho1s)
+        objective = cp.trace(weight_matrix @ v) - 2 * cp.trace(x @ weight_matrix @ vec_rho1s)
 
-    prob = cp.Problem(cp.Minimize(objective), constraints)
-    prob.solve(solver=solver)
+        prob = cp.Problem(cp.Minimize(objective), constraints)
+        prob.solve(solver=solver)
 
-    # Extract the results
-    x_opt = X.value
-    bound = objective.value
+        self._scalar_pseudo_gain = -objective.value
+        self._cvxpy_problem = prob
+        self._x_opt = x.value
 
-    return -bound, x_opt, prob
+    @property
+    def x_opt(self) -> npt.NDArray:
+        """Solution to the variable X"""
+        return self._x_opt
 
 
-def nh_fun(
-    rho0: np.typing.ArrayLike,
-    rho1s: list[np.typing.ArrayLike],
-    weight_matrix: np.typing.ArrayLike | None = None,
-    solver: str | None = "SCS",
-) -> tuple[float, np.typing.NDArray, list[np.typing.NDArray], cp.Problem]:
-    """
-    Calculation of the Bayesian Nagaoka-Hayashi bound (NHB)[1]_ via semidefinite programming.
+class NagaokaHayashiBound(ConvexBound):
+    _l_opt: npt.NDArray
+    _x_opt: list[npt.NDArray]
+    rho0: np.typing.NDArray
+    rho1s: list[np.typing.NDArray]
+    weight_matrix: np.typing.NDArray
+    prior_second_moment: np.typing.NDArray | None
+    cvx_problem: cp.Problem
+    scalar_pseudo_gain: float
 
-    Parameters
-    ----------
-    rho0 : ndarray
-        Density matrix, average state of the ensemble.
-    rho1s : list of ndarrays
-        List of first moment operators wrt to each parameter
-    weight_matrix : ndarray, optional
-        Weight matrix (defaults to identity).
-    solver : str, optional
-        CVXPY solver to use (e.g., 'SCS', 'MOSEK').
+    def __init__(
+        self,
+        rho0: npt.ArrayLike,
+        rho1s: list[npt.ArrayLike],
+        weight_matrix: npt.ArrayLike | None = None,
+        solver: str | None = "SCS",
+        prior_second_moment: npt.ArrayLike | None = None,
+        weighted_prior_second_moment: float | None = None,
+    ):
+        r"""
+        Calculation of the Bayesian Nagaoka-Hayashi bound (NHB)[1]_ via semidefinite programming.
 
-    Returns
-    -------
-    gain : float
-        The gain lower-bound of the Nagaoka–Hayashi bound.
-    l_opt : ndarray
-        Matrix assembled from SDP variables v.
-    x_opt : ndarray
-        Matrix assembled from auxiliary variables X.
-    prob : cp.Problem
-        The CVXPY problem object (for further inspection).
+        Parameters
+        ----------
+        rho0 : ndarray
+            Density matrix, average state of the ensemble.
+        rho1s : list of ndarrays
+            List of first moment operators wrt to each parameter
+        weight_matrix : ndarray
+            Weight matrix
+        solver : str, optional
+            CVXPY solver to use (e.g., 'SCS', 'MOSEK').
+        prior_second_moment : ndarray, optional
+            Second moment of the prior (\\( \Lambda \\))
+        weighted_prior_second_moment : float, optional
+            Scalar weighted second moment of the prior (\\( \lambda \\)). This is ignored if both `weight_matrix` and `prior_second_moment` are provided
 
-    References
-    ----------
-    .. [1] J. Suzuki, Bayesian Nagaoka-Hayashi Bound for Multiparameter Quantum-State Estimation Problem, [IEICE Trans. Fundam. Electron. Commun. Comput. Sci. E107.A, 510 (2024)](https://doi.org/10.1587/transfun.2023TAP0014), [arXiv:2302.14223](https://arxiv.org/abs/2302.14223).
-    """
-    dim = len(rho0)
-    para_num = len(rho1s)
+        References
+        ----------
+        .. [1] J. Suzuki, Bayesian Nagaoka-Hayashi Bound for Multiparameter Quantum-State Estimation Problem, [IEICE Trans. Fundam. Electron. Commun. Comput. Sci. E107.A, 510 (2024)](https://doi.org/10.1587/transfun.2023TAP0014), [arXiv:2302.14223](https://arxiv.org/abs/2302.14223).
+        """
+        rho0 = np.asarray(rho0)
+        dim = rho0.shape[0]
+        para_num = len(rho1s)
 
-    if weight_matrix is None:
-        weight_matrix = np.eye(para_num)
+        if weight_matrix is None:
+            raise ValueError(
+                "NagaokaHayashiBound requires a weight_matrix to be explicitly passed"
+            )
 
-    L_tp = [[[] for i in range(para_num)] for j in range(para_num)]
-    for para_i in range(para_num):
-        for para_j in range(para_i, para_num):
-            L_tp[para_i][para_j] = cp.Variable((dim, dim), hermitian=True)
-            L_tp[para_j][para_i] = L_tp[para_i][para_j]
-    L = cp.vstack([cp.hstack(L_tp_i) for L_tp_i in L_tp])
+        weight_matrix = np.asarray(weight_matrix)
 
-    # X_j variables for the optimization
-    X = [cp.Variable((dim, dim), hermitian=True) for _ in range(para_num)]
+        BoundMSL.__init__(
+            self,
+            rho0=rho0,
+            rho1s=rho1s,
+            weight_matrix=weight_matrix,
+            prior_second_moment=prior_second_moment,
+            weighted_prior_second_moment=weighted_prior_second_moment,
+        )
 
-    # Positive semidefinite constraint
-    constraints = [cp.bmat([[L, cp.vstack(X)], [cp.hstack(X), np.identity(dim)]]) >> 0]
+        lvars = [
+            cp.Variable((dim, dim), hermitian=True) for j in range(para_num) for _ in range(j + 1)
+        ]
 
-    # Objective function
-    D = np.kron(weight_matrix, np.eye(dim)) @ cp.vstack(rho1s)
-    objective = cp.real(
-        cp.trace(cp.kron(weight_matrix, rho0) @ L) - 2 * cp.trace(D @ cp.hstack(X))
-    )
+        u = [
+            coo_array(([1, 1], ([i, j], [j, i])), shape=(para_num, para_num))
+            for i in range(1, para_num)
+            for j in range(i)
+        ] + [coo_array(([1], ([i], [i])), shape=(para_num, para_num)) for i in range(para_num)]
 
-    # Solve the problem
-    prob = cp.Problem(cp.Minimize(objective), constraints)
-    prob.solve(solver=solver)
+        L = sum(cp.kron(u_i, l_i) for u_i, l_i in zip(u, lvars))
 
-    # Extract the results
-    l_opt = L.value
-    x_opt = [x_i.value for x_i in X]
-    gain = -objective.value
+        # X_j variables for the optimization
+        X = [cp.Variable((dim, dim), hermitian=True) for _ in range(para_num)]
 
-    return gain, l_opt, x_opt, prob
+        # Positive semidefinite constraint
+        constraints = [cp.bmat([[L, cp.vstack(X)], [cp.hstack(X), np.identity(dim)]]) >> 0]
+
+        # Objective function
+        D = np.kron(weight_matrix, np.eye(dim)) @ cp.vstack(self.rho1s)
+        objective = cp.real(
+            cp.trace(cp.kron(weight_matrix, self.rho0) @ L) - 2 * cp.trace(D @ cp.hstack(X))
+        )
+
+        # Solve the problem
+        prob = cp.Problem(cp.Minimize(objective), constraints)
+        prob.solve(solver=solver)
+
+        self._scalar_pseudo_gain = -objective.value
+        self._cvxpy_problem = prob
+        self._x_opt = [x_i.value for x_i in X]
+        self._l_opt = L.value
+
+    @property
+    def x_opt(self) -> list[npt.NDArray]:
+        """Solution to the variable X"""
+        return self._x_opt
+
+    @property
+    def l_opt(self) -> npt.NDArray:
+        """Solution to the variable L"""
+        return self._l_opt

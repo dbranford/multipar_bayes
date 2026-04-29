@@ -1,151 +1,156 @@
+"""
+Posterior mean lower bounds
+"""
+
+from collections.abc import Sequence
 import numpy as np
-from scipy.linalg import solve_continuous_lyapunov, sqrtm, fractional_matrix_power
+from scipy.linalg import solve_continuous_lyapunov, fractional_matrix_power
+
+from multipar_bayes.bounds import PMBound, RealPMBound, BoundMSL
 
 
-def spm_fun(
-    rho0: np.typing.ArrayLike,
-    rho1s: list[np.typing.ArrayLike],
-    weight_matrix: np.typing.ArrayLike | None = None,
-) -> tuple[float, np.typing.NDArray, list[np.typing.NDArray]]:
-    """
-    Compute the Symmetric Posterior Mean (SPM) gain [1]_.
+class SPMBound(RealPMBound):
+    _spms: list[np.typing.NDArray]
+    rho0: np.typing.NDArray
+    rho1s: list[np.typing.NDArray]
 
-    Parameters
-    ----------
-    rho0 : ndarray
-        Average density matrix of the ensemble.
-    rho1s : list of ndarray
-        List of first moment operators with respect to each parameter.
-    weight_matrix : ndarray, optional
-        Weight matrix. Defaults to the identity matrix.
+    def __init__(
+        self,
+        rho0: np.typing.ArrayLike,
+        rho1s: Sequence[np.typing.ArrayLike],
+        weight_matrix: np.typing.ArrayLike | None = None,
+        prior_second_moment: np.typing.ArrayLike | None = None,
+        weighted_prior_second_moment: float | None = None,
+    ):
+        r"""
+        Compute the Symmetric Posterior Mean (SPM) gain [1]_.
 
-    Returns
-    -------
-    spm_gain : float
-        SPM gain.
-    matrix_gain : ndarray
-        Matrix SPM gain.
-    spms : list of ndarray
-        List of SPM operators.
+        Parameters
+        ----------
+        rho0 : ndarray
+            Average density matrix of the ensemble
+        rho1s : list of ndarray
+            List of first moment operators with respect to each parameter
+        weight_matrix : ndarray, optional
+            Weight matrix. Defaults to the identity matrix
+        prior_second_moment : ndarray, optional
+            Second moment of the prior (\\( \Lambda \\))
+        weighted_prior_second_moment : float, optional
+            Scalar weighted second moment of the prior (\\( \lambda \\)). This is ignored if both `weight_matrix` and `prior_second_moment` are provided
 
-    References
-    ----------
-    .. [1] J. Rubio and J. Dunningham, Bayesian multiparameter quantum metrology with limited data, Phys. Rev. A 101, 032114 (2020)
-    """
+        References
+        ----------
+        .. [1] J. Rubio and J. Dunningham, Bayesian multiparameter quantum metrology with limited data, Phys. Rev. A 101, 032114 (2020)
+        """
+        BoundMSL.__init__(
+            self,
+            rho0=rho0,
+            rho1s=rho1s,
+            weight_matrix=weight_matrix,
+            prior_second_moment=prior_second_moment,
+            weighted_prior_second_moment=weighted_prior_second_moment,
+        )
 
-    if weight_matrix is None:
-        n = len(rho1s)
-        weight_matrix = np.eye(n)
-
-    # Solve the Sylvester equations
-    spms = [solve_continuous_lyapunov(rho0, 2 * rho1) for rho1 in rho1s]
-
-    matrix_gain = np.array([[np.trace(r1 @ spm) for spm in spms] for r1 in rho1s])
-
-    # Result
-    spm_gain = np.real(np.trace(weight_matrix @ matrix_gain))
-
-    return spm_gain, matrix_gain, spms
-
-
-def rpm_fun(
-    rho0: np.typing.ArrayLike,
-    rho1s: list[np.typing.ArrayLike],
-    weight_matrix: np.typing.ArrayLike | None = None,
-) -> tuple[float, np.typing.NDArray, list[np.typing.NDArray]]:
-    """
-    Compute the Right Posterior Mean (RPM) gain[1]_<sup>,</sup>[2]_.
-
-    Parameters
-    ----------
-    rho0 : ndarray
-        Average density matrix of the ensemble.
-    rho1s : list of ndarray
-        List of first moment operators with respect to each parameter.
-    weight_matrix : ndarray, optional
-        Weight matrix. Defaults to the identity matrix.
-
-    Returns
-    -------
-    rpm_gain : float
-        RPM gain.
-    matrix_gain : ndarray
-        Matrix RPM gain.
-    rpms : list of ndarray
-        List of RPM operators.
-
-    References
-    ----------
-    .. [1] J. Suzuki, Bayesian Nagaoka-Hayashi Bound for Multiparameter Quantum-State Estimation Problem, [IEICE Trans. Fundam. Electron. Commun. Comput. Sci. E107.A, 510 (2024)](https://doi.org/10.1587/transfun.2023TAP0014), [arXiv:2302.14223](https://arxiv.org/abs/2302.14223).
-    .. [2] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, [arXiv:2511.16645](https://arxiv.org/abs/2511.16645).
-    """
-    if weight_matrix is None:
-        n = len(rho1s)
-        weight_matrix = np.eye(n)
-
-    rho0inv = np.linalg.inv(rho0)
-
-    # Calculate the RPM operators
-    rpms = [rho0inv @ rho1 for rho1 in rho1s]
-
-    matrix_gain = np.array([[np.trace(r1 @ rpm) for rpm in rpms] for r1 in rho1s])
-
-    # Result
-    sqrt_weight = sqrtm(weight_matrix)
-    rpm_gain = np.trace(weight_matrix @ np.real(matrix_gain)) - np.sum(
-        np.abs(np.linalg.eigvals(sqrt_weight @ np.imag(matrix_gain) @ sqrt_weight))
-    )
-
-    return rpm_gain, matrix_gain, rpms
+        self._spms = [solve_continuous_lyapunov(self.rho0, 2 * rho1) for rho1 in self.rho1s]
+        self._posterior_mean_operators = self._spms
 
 
-def sqpm_fun(
-    r0: np.typing.ArrayLike,
-    rho1s: list[np.typing.ArrayLike],
-    weight_matrix: np.typing.ArrayLike | None = None,
-) -> tuple[float, np.typing.NDArray, list[np.typing.NDArray]]:
-    """
-    Computes the square-root posterior mean gain[1]_
+class RPMBound(PMBound):
+    _rpms: list[np.typing.NDArray]
+    rho0: np.typing.NDArray
+    rho1s: list[np.typing.NDArray]
 
-    Parameters
-    ----------
-    rho0 : ndarray
-        Average density matrix of the ensemble.
-    rho1s : list of ndarray
-        List of first moment operators with respect to each parameter.
-    weight_matrix : ndarray, optional
-        Weight matrix. Defaults to the identity matrix.
+    def __init__(
+        self,
+        rho0: np.typing.ArrayLike,
+        rho1s: Sequence[np.typing.ArrayLike],
+        weight_matrix: np.typing.ArrayLike | None = None,
+        prior_second_moment: np.typing.ArrayLike | None = None,
+        weighted_prior_second_moment: float | None = None,
+    ):
+        r"""
+        Compute the Right Posterior Mean (RPM) bound[1]_<sup>,</sup>[2]_.
 
-    Returns
-    -------
-    sqpm_gain : float
-        SQPM gain.
-    matrix_gain: ndarray
-        Matrix SQPM gain.
-    sqpms : list of ndarray
-        List of SQPM operators.
+        Parameters
+        ----------
+        rho0 : ndarray
+            Average density matrix of the ensemble
+        rho1s : list of ndarray
+            List of first moment operators with respect to each parameter
+        weight_matrix : ndarray, optional
+            Weight matrix. Defaults to the identity matrix
+        prior_second_moment : ndarray, optional
+            Second moment of the prior (\\( \Lambda \\))
+        weighted_prior_second_moment : float, optional
+            Scalar weighted second moment of the prior (\\( \lambda \\)). This is ignored if both `weight_matrix` and `prior_second_moment` are provided
 
-    See Also
-    --------
-    pgm_fun : Corresponding lower bound and posterior mean operators
+        References
+        ----------
+        .. [1] J. Suzuki, Bayesian Nagaoka-Hayashi Bound for Multiparameter Quantum-State Estimation Problem, [IEICE Trans. Fundam. Electron. Commun. Comput. Sci. E107.A, 510 (2024)](https://doi.org/10.1587/transfun.2023TAP0014), arXiv:2302.14223.
+        .. [2] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, [arXiv:2511.16645](https://arxiv.org/abs/2511.16645).
+        """
+        BoundMSL.__init__(
+            self,
+            rho0=rho0,
+            rho1s=rho1s,
+            weight_matrix=weight_matrix,
+            prior_second_moment=prior_second_moment,
+            weighted_prior_second_moment=weighted_prior_second_moment,
+        )
 
-    References
-    ----------
-    .. [1] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, [arXiv:2511.16645](https://arxiv.org/abs/2511.16645).
-    """
-    if weight_matrix is None:
-        n = len(rho1s)
-        weight_matrix = np.eye(n)
+        rho0inv = np.linalg.inv(self.rho0)
 
-    r0_inv_sqrt = fractional_matrix_power(r0, -0.5)
+        self._rpms = [rho0inv @ rho1 for rho1 in self.rho1s]
+        self._posterior_mean_operators = self._rpms
 
-    # Calculate the SqPM operators
-    sqpms = [r0_inv_sqrt @ rho1 @ r0_inv_sqrt for rho1 in rho1s]
 
-    # Compute the matrix precision gain
-    matrix_gain = np.array([[np.trace(r1 @ sqpm) for sqpm in sqpms] for r1 in rho1s])
+class SqPMBound(RealPMBound):
+    _sqpms: list[np.typing.NDArray]
+    rho0: np.typing.NDArray
+    rho1s: list[np.typing.NDArray]
 
-    # Result
-    sqpm_gain = np.real(np.trace(weight_matrix @ matrix_gain))
+    def __init__(
+        self,
+        rho0: np.typing.ArrayLike,
+        rho1s: Sequence[np.typing.ArrayLike],
+        weight_matrix: np.typing.ArrayLike | None = None,
+        prior_second_moment: np.typing.ArrayLike | None = None,
+        weighted_prior_second_moment: float | None = None,
+    ):
+        r"""
+        Computes the square-root posterior mean bound[1]_
 
-    return sqpm_gain, matrix_gain, sqpms
+        Parameters
+        ----------
+        rho0 : ndarray
+            Average density matrix of the ensemble
+        rho1s : list of ndarray
+            List of first moment operators with respect to each parameter
+        weight_matrix : ndarray, optional
+            Weight matrix. Defaults to the identity matrix
+        prior_second_moment : ndarray, optional
+            Second moment of the prior (\\( \Lambda \\))
+        weighted_prior_second_moment : float, optional
+            Scalar weighted second moment of the prior (\\( \lambda \\)). This is ignored if both `weight_matrix` and `prior_second_moment` are provided
+
+
+        See Also
+        --------
+        PGMBound : Corresponding upper bound and posterior mean operators
+
+        References
+        ----------
+        .. [1] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, [arXiv:2511.16645](https://arxiv.org/abs/2511.16645).
+        """
+        BoundMSL.__init__(
+            self,
+            rho0=rho0,
+            rho1s=rho1s,
+            weight_matrix=weight_matrix,
+            prior_second_moment=prior_second_moment,
+            weighted_prior_second_moment=weighted_prior_second_moment,
+        )
+
+        rho0_inv_sqrt = fractional_matrix_power(self.rho0, -0.5)
+        self._sqpms = [rho0_inv_sqrt @ rho1 @ rho0_inv_sqrt for rho1 in self.rho1s]
+        self._posterior_mean_operators = self._sqpms
