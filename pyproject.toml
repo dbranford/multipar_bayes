@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Package for calculating various bounds in Bayesian multi-parameter estimation"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
   {name = "Francesco Albarelli", email = "francesco.albarelli@gmail.com"},
   {name = "Dominic Branford", email = "dominic.branford@unifi.it"},
@@ -14,7 +14,7 @@ maintainers = [
   {name = "Dominic Branford", email = "dominic.branford@unifi.it"}
 ]
 dependencies = [
-    "cvxpy>=1.6.5",
+    "cvxpy>=1.8.0",
     "numpy>=2.1.2",
     "scipy>=1.15.3",
 ]
@@ -27,9 +27,6 @@ Issues = "https://github.com/dbranford/multipar_bayes/issues"
 
 [tool.ruff]
 line-length = 99
-
-[tool.ruff.lint]
-unfixable = ["F401"]
 
 [tool.uv]
 package = true
