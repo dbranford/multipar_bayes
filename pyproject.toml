@@ -38,4 +38,5 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pdoc>=16.0.0",
+    "pytest>=9.0.3",
 ]
