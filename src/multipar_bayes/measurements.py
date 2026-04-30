@@ -1,3 +1,5 @@
+import cvxpy as cp
+from dataclasses import dataclass
 import itertools
 import numpy as np
 from collections.abc import Iterable, Sequence
@@ -5,6 +7,8 @@ from functools import cached_property
 from typing import Self
 
 from multipar_bayes.bounds import MatrixBound, BoundMSL
+
+__all__ = ["MeasurementLossGeneral", "MeasurementLossBayesianUpdate", "seesaw_optimized_povm"]
 
 
 class MeasurementLossGeneral(MatrixBound):
@@ -234,6 +238,10 @@ class MeasurementLossBayesianUpdate(MeasurementLossGeneral):
                 _povms = itertools.product(povm, repeat=num)
             case [*local_povms]:
                 _povms = itertools.product(*local_povms)
+            case _:
+                raise ValueError(
+                    "povms must be a (list of arrays, int) tuple, or a list of lists of arrays"
+                )
 
         _povms = itertools.starmap(_kron_all, _povms)
 
@@ -262,3 +270,184 @@ def _prob_povm(ρ: np.typing.NDArray, povm: np.typing.NDArray) -> float:
 def _product_trace(a: np.typing.ArrayLike, b: np.typing.ArrayLike) -> float | complex:
     b = np.asarray(b)
     return np.sum(a * b.transpose())
+
+
+def _optimize_povm_given_estimators(
+    rho0: np.typing.NDArray,
+    rho1s: list[np.typing.NDArray],
+    f_hats: np.typing.NDArray,
+    weight_matrix: np.typing.NDArray,
+    solver: str = "SCS",
+    verbose: bool = False,
+) -> tuple[list[np.typing.NDArray], float, str]:
+    """
+    SDP step for fixed estimators in f-space.
+    """
+    _rho1s = np.moveaxis(np.asarray(rho1s), 0, -1)
+    f_hats = np.asarray(f_hats, dtype=float)
+    weight_matrix = np.asarray(weight_matrix)
+
+    dim = rho0.shape[0]
+    num_outcomes, num_params = f_hats.shape
+    if _rho1s.shape[-1] != num_params:
+        raise ValueError("rho1s and estimator dimensions do not match.")
+
+    xis = [
+        2.0 * _rho1s @ weight_matrix @ f_hats_i
+        - np.linalg.multi_dot([f_hats_i, weight_matrix, f_hats_i]) * rho0
+        for f_hats_i in f_hats
+    ]
+
+    povms = [cp.Variable((dim, dim), hermitian=True) for _ in range(num_outcomes)]
+    constraints = [m >> 0 for m in povms]
+    constraints += [sum(povms) == np.eye(dim)]
+
+    objective = cp.sum([cp.real(cp.trace(m @ xi)) for m, xi in zip(povms, xis)])
+    prob = cp.Problem(cp.Maximize(objective), constraints)
+    prob.solve(solver=solver, verbose=verbose)
+
+    return [m.value for m in povms], objective.value, prob.status
+
+
+def _update_estimators_posterior_mean(
+    rho0: np.typing.NDArray,
+    rho1s: list[np.typing.NDArray],
+    povms: list[np.typing.NDArray],
+    eps: float = 1e-12,
+) -> np.typing.NDArray:
+    """
+    Closed-form Bayesian update for quadratic loss in f-space.
+    """
+    num_params = len(rho1s)
+    num_povms = len(povms)
+
+    f_hats = np.zeros((num_povms, num_params), dtype=float)
+    for i, m in enumerate(povms):
+        m = np.asarray(m)
+        pi = _prob_povm(m, rho0)
+        if pi <= eps:
+            continue
+        f_hats[i, :] = [_prob_povm(rho1, m) / pi for rho1 in rho1s]
+    return f_hats
+
+
+def seesaw_optimized_povm(
+    rho0: np.typing.ArrayLike,
+    rho1s: list[np.typing.ArrayLike],
+    weight_matrix: np.typing.ArrayLike,
+    prior_second_moment: np.typing.ArrayLike | None = None,
+    weighted_prior_second_moment: float | None = None,
+    num_outcomes: int | None = None,
+    num_rounds: int = 20,
+    eps: float = 1e-12,
+    solver: str = "SCS",
+    verbose: bool = False,
+    seed: np.random.Generator | int | None = None,
+    init_box: np.typing.ArrayLike | None = None,
+) -> tuple[MeasurementLossBayesianUpdate, np.typing.NDArray, str]:
+    r"""
+    Implement numerical approach to find POVM[1]_<sup>,</sup>[2]_
+
+    Parameters
+    ----------
+    rho0 : ndarray
+        Average density matrix of the ensemble.
+    rho1s : list of ndarray
+        List of first moment operators with respect to each parameter.
+    weight_matrix : ndarray
+        Weight matrix
+    prior_second_moment : ndarray, optional
+        Second moment of the prior (\\( \Lambda \\)). Required in lieu of `weighted_prior_second_moment`.
+    weighted_prior_second_moment : float, optional
+        Scalar weighted second moment of the prior (\\( \lambda \\)). This is ignored if `prior_second_moment` are provided
+    num_outcomes : int, optional
+        Number of outcomes to consider, defaults to the square of the corresponding Hilbert space dimension.
+    num_rounds : int, optional
+        Number of rounds of optimisation to use, defaults to 20.
+    eps : float, optional
+        Minimum value of \\( \mathrm{Tr}(\rho_0 \Pi) \\) to consider as \\( 0 \\).
+    solver : str, optional
+        CVXPY solver to use (e.g., 'SCS', 'MOSEK').
+    verbose : bool, optional
+        Print additional detail (also passed to `cvxpy.Problem`), defaults to False.
+    seed :  np.random.Generator, int, optional
+        Seed random
+    init_box : arraylike, optional
+        Initial values for
+
+
+    Returns
+    -------
+    bound : MeasurementLossBayesianUpdate
+        Bound instance
+    f_hats : array
+        Matrix of estimates associated with given outcomes
+    status : str
+        Status of the corresponding `cvxpy.Problem` which led to the outcome
+
+    References
+    ----------
+    .. [1] J. Bavaresco, P. Lipka-Bartosik, P. Sekatski, M. Mehboudi, Designing optimal protocols in Bayesian quantum parameter estimation with higher-order operations, [Phys. Rev. Research 6, 023305 (2024)](https://doi.org/10.1103/PhysRevResearch.6.023305).
+    .. [2] F. Albarelli, D. Branford, J. Rubio, Measurement incompatibility in Bayesian multiparameter quantum estimation, [arXiv:2511.16645](https://arxiv.org/abs/2511.16645).
+    """
+    rho0 = np.asarray(rho0)
+    _rho1s = [np.asarray(r) for r in rho1s]
+
+    weight_matrix = np.asarray(weight_matrix)
+
+    dim = rho0.shape[0]
+    num_params = len(rho1s)
+
+    if num_outcomes is None:
+        num_outcomes = dim * dim
+
+    if init_box is None:
+        init_box = np.ones(num_params, dtype=float)
+    else:
+        init_box = np.asarray(init_box, dtype=float)
+
+        if init_box.shape != (num_params,):
+            raise ValueError(f"init_box must have shape {(num_params,)}, got {init_box.shape}.")
+
+    rng = np.random.default_rng(seed)
+    f_hats = rng.uniform(low=-init_box, high=init_box, size=(num_outcomes, num_params))
+
+    best_msl = np.inf
+
+    for round_idx in range(num_rounds):
+        povms, score, status = _optimize_povm_given_estimators(
+            rho0=rho0,
+            rho1s=_rho1s,
+            f_hats=f_hats,
+            weight_matrix=weight_matrix,
+            solver=solver,
+            verbose=verbose,
+        )
+        f_hats = _update_estimators_posterior_mean(rho0=rho0, rho1s=_rho1s, povms=povms, eps=eps)
+        bound = MeasurementLossBayesianUpdate(
+            rho0,
+            _rho1s,
+            povms,
+            weight_matrix=weight_matrix,
+            prior_second_moment=prior_second_moment,
+            weighted_prior_second_moment=weighted_prior_second_moment,
+            eps=eps,
+        )
+        msl = bound.scalar_bound()
+
+        if msl < best_msl:
+            best_msl = msl
+            best = _SeesawStrategy(povms=povms, f_hats=f_hats, status=status, bound=bound)
+
+        if verbose:
+            print(f"[round {round_idx:02d}] status={status:>20} score={score: .8e} msl={msl: .8e}")
+
+    return best.bound, best.f_hats, best.status
+
+
+@dataclass
+class _SeesawStrategy:
+    povms: list[np.typing.NDArray]
+    f_hats: np.typing.NDArray
+    status: str
+    bound: MeasurementLossBayesianUpdate
