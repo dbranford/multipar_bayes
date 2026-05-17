@@ -422,8 +422,8 @@ class PMBound(MatrixBound):
 
     @cached_property
     def _matrix_pseudo_gain(self) -> np.typing.NDArray:
-        matrix_pseudo_gain = np.array(
-            [[np.trace(ρ1 @ pm) for ρ1 in self.rho1s] for pm in self.posterior_mean_operators]
+        matrix_pseudo_gain = np.real(
+            np.einsum("jmn,kmn->jk", self.rho1s, self.posterior_mean_operators)
         )
         if np.isreal(matrix_pseudo_gain).all():
             matrix_pseudo_gain = np.real(matrix_pseudo_gain)
@@ -438,10 +438,4 @@ class RealPMBound(PMBound):
 
     @cached_property
     def _matrix_pseudo_gain(self) -> np.typing.NDArray:
-        matrix_pseudo_gain = np.array(
-            [
-                [np.real(np.trace(ρ1 @ pm)) for ρ1 in self.rho1s]
-                for pm in self.posterior_mean_operators
-            ]
-        )
-        return np.real(matrix_pseudo_gain)
+        return np.real(np.einsum("jmn,kmn->jk", self.rho1s, self.posterior_mean_operators))

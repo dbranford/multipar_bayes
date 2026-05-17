@@ -84,10 +84,8 @@ class MeasurementLossGeneral(MatrixBound):
 
     @cached_property
     def _matrix_pseudo_gain(self) -> np.typing.NDArray:
-        m2ρ0 = np.trace(np.tensordot(self.m2s, self.rho0), axis1=2, axis2=3)
-        m1ρ1 = np.trace(
-            np.tensordot(self.m1s, np.moveaxis(np.asarray(self.rho1s), 0, -1)), axis1=1, axis2=2
-        )
+        m2ρ0 = np.einsum("jkmn,nm->jk", self.m2s, self.rho0)
+        m1ρ1 = np.einsum("jmn,knm->jk", self.m1s, self.rho1s)
         m1ρ1 = m1ρ1 + np.transpose(m1ρ1)
 
         return m2ρ0 - m1ρ1
@@ -157,10 +155,10 @@ class MeasurementLossBayesianUpdate(MeasurementLossGeneral):
         matrix_pseudo_gain = np.zeros((num_params, num_params))
         for povm in self._povms:
             povm = np.asarray(povm)
-            povm_rho0 = _prob_povm(povm, self.rho0)
+            povm_rho0 = _prob_povm(self.rho0, povm)
             if np.abs(povm_rho0) < self.eps:
                 continue
-            povm_rho1s = [_prob_povm(povm, rho1) for rho1 in self.rho1s]
+            povm_rho1s = [_prob_povm(rho1, povm) for rho1 in self.rho1s]
             matrix_pseudo_gain += np.outer(povm_rho1s, povm_rho1s) / povm_rho0
         return matrix_pseudo_gain
 
@@ -173,10 +171,10 @@ class MeasurementLossBayesianUpdate(MeasurementLossGeneral):
         m1 = np.zeros((num_params, dim, dim))
         for povm in self.povms:
             povm = np.asarray(povm)
-            povm_rho0 = _prob_povm(povm, self.rho0)
+            povm_rho0 = _prob_povm(self.rho0, povm)
             if np.abs(povm_rho0) < self.eps:
                 continue
-            povm_m1s = np.array([povm * _prob_povm(povm, rho1) / povm_rho0 for rho1 in self.rho1s])
+            povm_m1s = np.array([povm * _prob_povm(rho1, povm) / povm_rho0 for rho1 in self.rho1s])
             m1 += povm_m1s
         return m1
 
@@ -189,10 +187,10 @@ class MeasurementLossBayesianUpdate(MeasurementLossGeneral):
         m2 = np.zeros((num_params, num_params, dim, dim))
         for povm in self.povms:
             povm = np.asarray(povm)
-            povm_rho0 = _prob_povm(povm, self.rho0)
+            povm_rho0 = _prob_povm(self.rho0, povm)
             if np.abs(povm_rho0) < self.eps:
                 continue
-            povm_rho1s = [_prob_povm(povm, rho1) for rho1 in self.rho1s]
+            povm_rho1s = [_prob_povm(rho1, povm) for rho1 in self.rho1s]
             povm_m2s = np.tensordot(np.outer(povm_rho1s, povm_rho1s) / povm_rho0, povm, axes=0)
             m2 += povm_m2s
         return m2
@@ -264,12 +262,13 @@ def _kron_all(*mats: np.typing.ArrayLike) -> np.typing.NDArray:
 
 
 def _prob_povm(ρ: np.typing.NDArray, povm: np.typing.NDArray) -> float:
-    return np.real(np.sum(ρ * povm.transpose()))
+    return np.real(np.einsum("ij,ji->", ρ, povm))
 
 
 def _product_trace(a: np.typing.ArrayLike, b: np.typing.ArrayLike) -> float | complex:
+    a = np.asarray(a)
     b = np.asarray(b)
-    return np.sum(a * b.transpose())
+    return np.einsum("ij,ji->", a, b)
 
 
 def _optimize_povm_given_estimators(
@@ -283,7 +282,7 @@ def _optimize_povm_given_estimators(
     """
     SDP step for fixed estimators in f-space.
     """
-    _rho1s = np.moveaxis(np.asarray(rho1s), 0, -1)
+    _rho1s = np.asarray(rho1s)
     f_hats = np.asarray(f_hats, dtype=float)
     weight_matrix = np.asarray(weight_matrix)
 
@@ -293,8 +292,8 @@ def _optimize_povm_given_estimators(
         raise ValueError("rho1s and estimator dimensions do not match.")
 
     xis = [
-        2.0 * _rho1s @ weight_matrix @ f_hats_i
-        - np.linalg.multi_dot([f_hats_i, weight_matrix, f_hats_i]) * rho0
+        2.0 * np.einsum("jmn,jk,k->mn", _rho1s, weight_matrix, f_hats_i)
+        - np.einsum("jk,j,k->", weight_matrix, f_hats_i, f_hats_i) * rho0
         for f_hats_i in f_hats
     ]
 
@@ -324,7 +323,7 @@ def _update_estimators_posterior_mean(
     f_hats = np.zeros((num_povms, num_params), dtype=float)
     for i, m in enumerate(povms):
         m = np.asarray(m)
-        pi = _prob_povm(m, rho0)
+        pi = _prob_povm(rho0, m)
         if pi <= eps:
             continue
         f_hats[i, :] = [_prob_povm(rho1, m) / pi for rho1 in rho1s]

@@ -224,7 +224,7 @@ class HolevoNagaokaBound(ConvexBound):
         lambdas = [eye_array(dim, format="dia") / np.sqrt(dim)] + u + v + w
 
         generator_products = u_n_generators_product(dim)
-        s = np.array([(self.rho0 @ m).trace() for m in generator_products]).reshape((num, num))
+        s = np.array([(self.rho0 * m.T).sum() for m in generator_products]).reshape((num, num))
 
         lu, d, _ = sp.linalg.ldl(s)
         r = np.dot(lu, sp.linalg.sqrtm(d)).conj().T
@@ -235,10 +235,10 @@ class HolevoNagaokaBound(ConvexBound):
         constraints = [cp.bmat([[v, x.T @ r.conj().T], [r @ x, np.identity(num)]]) >> 0]
 
         vec_rho1s = np.array(
-            [[np.real((rho1j @ λ).trace()) for λ in lambdas] for rho1j in self.rho1s]
+            [[np.real((rho1j * λ.T).sum()) for λ in lambdas] for rho1j in self.rho1s]
         )
 
-        objective = cp.trace(weight_matrix @ v) - 2 * cp.trace(x @ weight_matrix @ vec_rho1s)
+        objective = cp.trace(weight_matrix @ v) - 2 * cp.trace(weight_matrix @ vec_rho1s @ x)
 
         prob = cp.Problem(cp.Minimize(objective), constraints)
         prob.solve(solver=solver)
@@ -335,7 +335,7 @@ class NagaokaHayashiBound(ConvexBound):
         # Objective function
         D = np.kron(weight_matrix, np.eye(dim)) @ cp.vstack(self.rho1s)
         objective = cp.real(
-            cp.trace(cp.kron(weight_matrix, self.rho0) @ L) - 2 * cp.trace(D @ cp.hstack(X))
+            cp.trace(np.kron(weight_matrix, self.rho0) @ L) - 2 * cp.trace(D @ cp.hstack(X))
         )
 
         # Solve the problem
