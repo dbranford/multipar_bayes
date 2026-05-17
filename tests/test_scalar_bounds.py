@@ -5,6 +5,7 @@ from multipar_bayes.bounds import MatrixBound, ConvexBound, ScalarBound
 from multipar_bayes.convex import HolevoNagaokaBound, NagaokaHayashiBound
 from multipar_bayes.lower import SPMBound, RPMBound, SqPMBound
 from multipar_bayes.pgm import PGMBound
+from multipar_bayes.measurements import MeasurementLossBayesianUpdate
 
 
 @pytest.mark.parametrize(
@@ -14,6 +15,17 @@ from multipar_bayes.pgm import PGMBound
         (SPMBound, {}),
         (RPMBound, {}),
         (SqPMBound, {}),
+        (
+            MeasurementLossBayesianUpdate,
+            {
+                "povms": [
+                    np.diag([1, 0, 0, 0]),
+                    np.diag([0, 1, 0, 0]),
+                    np.diag([0, 0, 1, 0]),
+                    np.diag([0, 0, 0, 1]),
+                ]
+            },
+        ),
     ],
 )
 def test_scalar_bound_matrix(bound_class, kwargs):
