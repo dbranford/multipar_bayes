@@ -29,8 +29,8 @@ class MeasurementLossGeneral(MatrixBound):
     def __init__(
         self,
         rho0: np.typing.ArrayLike,
-        rho1s: list[np.typing.ArrayLike],
-        meas1s: list[np.typing.ArrayLike],
+        rho1s: Sequence[np.typing.ArrayLike],
+        meas1s: list[np.typing.ArrayLike] | np.typing.ArrayLike,
         meas2s: list[list[np.typing.ArrayLike]] | np.typing.ArrayLike,
         weight_matrix: np.typing.ArrayLike | None = None,
         prior_second_moment: np.typing.ArrayLike | None = None,
@@ -46,10 +46,10 @@ class MeasurementLossGeneral(MatrixBound):
             Average density matrix of the ensemble.
         rho1s : list of ndarray
             List of first moment operators with respect to each parameter.
-        meas1s : list of ndarray
-            List of first moment measurements with respect to each parameter.
+        meas1s : ndarray or list of ndarray
+            List of first moment measurements with respect to each parameter, if array shape should be [para_num, hilbert_size, hilbert_size].
         meas2s : ndarray or list of list of ndarray
-            second moment measurements with respect to all parameter pairs, shape should be [para_num, param_num, hilbert_size, hilbert_size].
+            second moment measurements with respect to all parameter pairs, if array shape should be [para_num, param_num, hilbert_size, hilbert_size].
         weight_matrix : ndarray, optional
             Weight matrix. Defaults to the identity matrix
         prior_second_moment : ndarray, optional
@@ -88,7 +88,7 @@ class MeasurementLossGeneral(MatrixBound):
         m1ρ1 = np.einsum("jmn,knm->jk", self.m1s, self.rho1s)
         m1ρ1 = m1ρ1 + np.transpose(m1ρ1)
 
-        return m2ρ0 - m1ρ1
+        return m1ρ1 - m2ρ0
 
 
 class MeasurementLossBayesianUpdate(MeasurementLossGeneral):
@@ -191,7 +191,7 @@ class MeasurementLossBayesianUpdate(MeasurementLossGeneral):
             if np.abs(povm_rho0) < self.eps:
                 continue
             povm_rho1s = [_prob_povm(rho1, povm) for rho1 in self.rho1s]
-            povm_m2s = np.tensordot(np.outer(povm_rho1s, povm_rho1s) / povm_rho0, povm, axes=0)
+            povm_m2s = np.tensordot(np.outer(povm_rho1s, povm_rho1s) / povm_rho0**2, povm, axes=0)
             m2 += povm_m2s
         return m2
 
