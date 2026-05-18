@@ -288,7 +288,7 @@ def _optimize_povm_given_estimators(
 
     dim = rho0.shape[0]
     num_outcomes, num_params = f_hats.shape
-    if _rho1s.shape[-1] != num_params:
+    if _rho1s.shape[0] != num_params:
         raise ValueError("rho1s and estimator dimensions do not match.")
 
     xis = [
