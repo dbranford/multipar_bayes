@@ -291,11 +291,9 @@ def _optimize_povm_given_estimators(
     if _rho1s.shape[0] != num_params:
         raise ValueError("rho1s and estimator dimensions do not match.")
 
-    xis = [
-        2.0 * np.einsum("jmn,jk,k->mn", _rho1s, weight_matrix, f_hats_i)
-        - np.einsum("jk,j,k->", weight_matrix, f_hats_i, f_hats_i) * rho0
-        for f_hats_i in f_hats
-    ]
+    xis = 2 * np.einsum("jk,lk,jmn-> lmn", weight_matrix, f_hats, _rho1s) - np.einsum(
+        "jk,lk,lj,mn->lmn", weight_matrix, f_hats, f_hats, rho0
+    )
 
     povms = [cp.Variable((dim, dim), hermitian=True) for _ in range(num_outcomes)]
     constraints = [m >> 0 for m in povms]
